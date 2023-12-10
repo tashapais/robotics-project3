@@ -33,48 +33,10 @@ def to_global(local_landmarks, global_pose):
         landmark_coords[i][1] = global_pose[1] + local_landmarks[i*2] * np.sin(global_pose[2] + local_landmarks[(i*2)+1])
     return landmark_coords
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--map', type=str, nargs='?')
-parser.add_argument('--execution', type=str, nargs='?')
-parser.add_argument('--sensing', type=str, nargs='?')
-
-args = parser.parse_args()
-
-landmarks = np.load(args.map, allow_pickle=True)
-
-ground_truths = np.load(args.execution, allow_pickle=True)
-
-readings = np.load(args.sensing, allow_pickle=True)
-
-q = np.array(readings[0])
-
-fig, ax = plt.subplots(dpi=100)
-
-ax.set_aspect('equal')
-ax.set_xlim(0, 2)
-ax.set_ylim(0, 2)
-
 
 def init():
     global q
     q = np.array(readings[0])
-
-gt_patch = plt.Polygon(transform_rigid_body(original, ground_truths[0]), fill=False, color='blue')
-sensed_patch = plt.Polygon(transform_rigid_body(original, readings[0]), fill=False, color='red')
-
-ax.add_patch(gt_patch)
-ax.add_patch(sensed_patch)
-
-plt.plot(landmarks[:,0], landmarks[:,1], 'o', markersize=5)
-
-landmark_guesses, = plt.plot(landmarks[:,0], landmarks[:,1], 'x', markersize=5)
-
-lines = []
-
-for i in range(np.size(landmarks, 0)):
-    line, = plt.plot([landmarks[i][0], q[0]], [landmarks[i][1], q[1]], linewidth=0.5, color='red')
-    lines.append(line)
-
 
 def animate(i):
     print(i)
@@ -101,7 +63,55 @@ def animate(i):
     landmark_guesses, = ax.plot(sensed_landmarks[:,0], sensed_landmarks[:,1], 'x', color='red', markersize=5)
 
 
-ani = FuncAnimation(fig, animate, interval=70, frames=200, init_func=init, repeat=False)
+    ani = FuncAnimation(fig, animate, interval=70, frames=200, init_func=init, repeat=False)
 
-plt.show()
-plt.close()
+    # Return the animation object to keep it in scope
+    return ani
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--map', type=str, nargs='?')
+    parser.add_argument('--execution', type=str, nargs='?')
+    parser.add_argument('--sensing', type=str, nargs='?')
+
+    args = parser.parse_args()
+
+    landmarks = np.load(args.map, allow_pickle=True)
+
+    ground_truths = np.load(args.execution, allow_pickle=True)
+
+    readings = np.load(args.sensing, allow_pickle=True)
+
+    q = np.array(readings[0])
+
+    fig, ax = plt.subplots(dpi=100)
+
+    ax.set_aspect('equal')
+    ax.set_xlim(0, 2)
+    ax.set_ylim(0, 2)
+
+
+    gt_patch = plt.Polygon(transform_rigid_body(original, ground_truths[0]), fill=False, color='blue')
+    sensed_patch = plt.Polygon(transform_rigid_body(original, readings[0]), fill=False, color='red')
+
+    ax.add_patch(gt_patch)
+    ax.add_patch(sensed_patch)
+
+    plt.plot(landmarks[:,0], landmarks[:,1], 'o', markersize=5)
+
+    landmark_guesses, = plt.plot(landmarks[:,0], landmarks[:,1], 'x', markersize=5)
+
+    lines = []
+
+    for i in range(np.size(landmarks, 0)):
+        line, = plt.plot([landmarks[i][0], q[0]], [landmarks[i][1], q[1]], linewidth=0.5, color='red')
+        lines.append(line)
+
+    # Create and run the animation using FuncAnimation
+    ani = FuncAnimation(fig, animate, frames=200, init_func=init, repeat=False)
+
+    # Display the animation
+    plt.show()
+
+    # Optionally, save the animation
+    ani.save('dr/dr_0_0_H.mp4', writer='ffmpeg')
