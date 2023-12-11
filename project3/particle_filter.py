@@ -1,7 +1,12 @@
 import numpy as np
+import os
 import argparse
 import matplotlib.pyplot as plt
-import matplotlib.animation as animation
+from dead_reckoning import drive_model, rotate, transform_rigid_body, to_global
+from matplotlib.animation import FuncAnimation
+
+dt = 0.1
+original = np.array([[-.05, -.1], [.05, -.1], [.05, .1], [-.05, .1]])
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Particle Filter for Robot Localization')
@@ -59,45 +64,11 @@ def resample_particles(particles, weights):
     indices = np.random.choice(len(particles), size=len(particles), p=normalized_weights)
     return particles[indices]
 
-def animate_particle_filter(landmark_map, odometry, noisy_observations, particle_history, estimated_poses):
-    fig, ax = plt.subplots()
-    landmark_plot, = ax.plot(landmark_map[:, 0], landmark_map[:, 1], 'bo', label='Landmarks')
-    odometry_plot, = ax.plot([], [], 'r-', label='Odometry')
-    estimated_pose_plot, = ax.plot([], [], 'k-', label='Estimated Pose')
-    particles_plot = ax.scatter([], [], s=1, color='gray', label='Particles')
-    noisy_observation_plot = ax.scatter([], [], s=30, color='r', marker='x', label='Noisy Observations')
-
-    def init():
-        ax.set_xlim(-1, 3)
-        ax.set_ylim(-1, 3)
-        return landmark_plot, odometry_plot, estimated_pose_plot, particles_plot, noisy_observation_plot
-
-    def update(frame):
-        odometry_plot.set_data(odometry[:frame, 0], odometry[:frame, 1])
-        estimated_pose_plot.set_data(estimated_poses[:frame, 0], estimated_poses[:frame, 1])
-        particles = particle_history[frame]
-        particles_plot.set_offsets(particles[:, :2])
-
-        noisy_obs = noisy_observations[frame]
-        if len(noisy_obs) > 0 and noisy_obs.ndim == 2:
-            noisy_observation_plot.set_offsets(noisy_obs[:, :2])
-        else:
-            noisy_observation_plot.set_offsets(np.empty((0, 2)))  # Use an empty 2D array for no observations
-
-        return landmark_plot, odometry_plot, estimated_pose_plot, particles_plot, noisy_observation_plot
-
-
-    ani = animation.FuncAnimation(fig, update, frames=len(estimated_poses), init_func=init, blit=True, interval=50)
-    plt.legend()
-    plt.show()
-    # Uncomment the following line to save the animation as a video file
-    ani.save('video1/particles_0_0_H_200.mp4', writer='ffmpeg')
-
 def particle_filter(map_path, sensing_path, num_particles, estimates_path):
     odometry = []
     noisy_observations = []
     particle_history = []
-    landmark_map = np.load(map_path)
+    landmarks = np.load(map_path)
     readings = np.load(sensing_path)
     initial_pose = readings[0, :3]
 
@@ -109,7 +80,7 @@ def particle_filter(map_path, sensing_path, num_particles, estimates_path):
 
     for i in range(1, len(readings), 2):
         particles = update_particles(particles, readings[i])
-        weights = weight_particles(particles, readings[i + 1], landmark_map)
+        weights = weight_particles(particles, readings[i + 1], landmarks)
 
         odometry.append(readings[i, :2])
     
@@ -131,10 +102,103 @@ def particle_filter(map_path, sensing_path, num_particles, estimates_path):
     # Return odometry and noisy_observations as lists
     return np.array(odometry), noisy_observations, particle_history, estimates
 
+def animate(i, q, particles, particles_plot, ground_truths, readings, landmarks, gt_patch, sensed_patch, landmark_guesses, lines, ax):
+    global odometry_plot, estimated_pose_plot, noisy_observation_plot
 
+    # Update particles and resample
+    particles = update_particles(particles, readings[i * 2 + 1])
+    weights = weight_particles(particles, readings[i * 2 + 2], landmarks)
+    particles = resample_particles(particles, weights)
+    particles_plot.set_offsets(particles[:, :2])
+
+    # Update estimated pose plot (black line)
+    estimated_pose = np.mean(particles, axis=0)
+    estimated_pose_x, estimated_pose_y = estimated_pose_plot.get_data()
+    estimated_pose_x = np.append(estimated_pose_x, estimated_pose[0])
+    estimated_pose_y = np.append(estimated_pose_y, estimated_pose[1])
+    estimated_pose_plot.set_data(estimated_pose_x, estimated_pose_y)
+
+    # Update ground truth and sensed patches
+    gt_patch.set_xy(transform_rigid_body(original, ground_truths[i + 1]))
+    q += drive_model(q, readings[(2 * i) + 1])
+    sensed_patch.set_xy(transform_rigid_body(original, q))
+
+    # Plot odometry and estimated poses
+    ax.plot(ground_truths[i][0], ground_truths[i][1], 'o', color='blue', markersize=1.5)
+    ax.plot(q[0], q[1], 'o', color='red', markersize=1.5)
+
+    # Update landmark guesses
+    sensed_landmarks = to_global(readings[(i * 2) + 2], q)
+    landmark_guesses.set_offsets(sensed_landmarks)
+
+    # Update lines connecting estimated robot position to landmarks
+    for j, line in enumerate(lines):
+        if j < len(sensed_landmarks):
+            line.set_data([q[0], sensed_landmarks[j][0]], [q[1], sensed_landmarks[j][1]])
+        else:
+            line.set_data([], [])
+
+    return particles_plot, odometry_plot, estimated_pose_plot, noisy_observation_plot, gt_patch, sensed_patch, landmark_guesses, *lines
+
+
+
+
+def load_ground_truth(sensing_path):
+    # Extract the first and second numbers from the sensing_path
+    parts = os.path.basename(sensing_path).split('_')
+    first_number = parts[1]
+    second_number = parts[2].split('.')[0]
+    
+    # Construct the path to the corresponding ground truth file
+    ground_truth_path = f'gts/gt_{first_number}_{second_number}.npy'
+
+    # Load the ground truth data
+    ground_truths = np.load(ground_truth_path)
+
+    return ground_truths
 
 if __name__ == "__main__":
     args = parse_arguments()
-    odometry, noisy_obs, particle_history, estimated_poses = particle_filter(args.map, args.sensing, args.num_particles, args.estimates)
-    landmark_map = np.load(args.map)
-    animate_particle_filter(landmark_map, odometry, noisy_obs, particle_history, estimated_poses)
+    ground_truths = load_ground_truth(args.sensing)
+
+    # Load data
+    landmarks = np.load(args.map, allow_pickle=True)
+    readings = np.load(args.sensing, allow_pickle=True)
+    q = np.array(readings[0])
+    num_particles = args.num_particles
+    initial_pose = readings[0, :3]  # Assuming the initial pose is in the first row
+
+    # Initialize particles
+    particles = initialize_particles(num_particles, initial_pose)
+
+    # Set up the plot
+    fig, ax = plt.subplots()
+    ax.set_xlim(0, 2)  # Adjust as per your map's dimensions
+    ax.set_ylim(0, 2)
+    ax.scatter(landmarks[:, 0], landmarks[:, 1], marker='o', color='blue', label='Landmarks')
+    particles_plot = ax.scatter(particles[:, 0], particles[:, 1], s=1, color='gray', label='Particles')
+
+    odometry_plot, = ax.plot([], [], 'r-', label='Odometry')
+    estimated_pose_plot, = ax.plot([], [], 'k-', label='Estimated Pose')
+    noisy_observation_plot = ax.scatter([], [], s=30, color='r', marker='x', label='Noisy Observations')
+
+    gt_patch = plt.Polygon(transform_rigid_body(original, ground_truths[0]), fill=False, color='blue')
+    sensed_patch = plt.Polygon(transform_rigid_body(original, readings[0]), fill=False, color='red')
+
+    ax.add_patch(gt_patch)
+    ax.add_patch(sensed_patch)
+
+    landmark_guesses = ax.scatter(landmarks[:, 0], landmarks[:, 1], marker='x', color='red', s=5)
+    lines = [ax.plot([], [], 'r-', linewidth=0.5)[0] for _ in range(len(landmarks))]
+
+    # Create and run the animation
+    ani = FuncAnimation(fig, animate, frames=len(readings) // 2, fargs=(q, particles, particles_plot, ground_truths, readings, landmarks, gt_patch, sensed_patch, landmark_guesses, lines, ax), repeat=False)
+
+    plt.legend()
+    plt.show()
+
+    # Save particle estimates
+    np.save(args.estimates, particles)  # Modify as needed to save the correct data
+
+    # Optionally, save the animation
+    ani.save('video1/particles_0_0_L_200.mp4', writer='ffmpeg')
