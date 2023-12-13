@@ -157,6 +157,22 @@ def load_ground_truth(sensing_path):
 
     return ground_truths
 
+def construct_animation_save_path(estimates_path):
+    # Extract components from the estimates path
+    dir_name, file_name = os.path.split(estimates_path)
+    dir_name= 'video1'
+    parts = file_name.split('_')
+    map_number = parts[1]
+    control_number = parts[2]
+    noise_level = parts[3]
+    particle_number = parts[4].split('.')[0]
+
+    # Construct the animation save path
+    animation_file_name = f'particles_{map_number}_{control_number}_{noise_level}_{particle_number}.mp4'
+    animation_save_path = os.path.join(dir_name, animation_file_name)
+
+    return animation_save_path
+
 if __name__ == "__main__":
     args = parse_arguments()
     ground_truths = load_ground_truth(args.sensing)
@@ -200,5 +216,10 @@ if __name__ == "__main__":
     # Save particle estimates
     np.save(args.estimates, particles)  # Modify as needed to save the correct data
 
-    # Optionally, save the animation
-    ani.save('video1/particles_0_0_L_200.mp4', writer='ffmpeg')
+    # Inside your main function after parsing arguments
+    animation_save_path = construct_animation_save_path(args.estimates)
+
+    print(animation_save_path)
+    # Use this path to save the animation
+    ani.save(animation_save_path, writer='ffmpeg')
+

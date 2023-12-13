@@ -147,4 +147,5 @@ def animate(i):
 
 ani = FuncAnimation(fig, animate, interval=40, frames=200, init_func=init, repeat=False)
 plt.show()
-plt.close()
+#plt.close()
+ani.save('eval1/eval1_0_0_L_200.mp4', writer='ffmpeg')
