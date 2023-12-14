@@ -32,7 +32,6 @@ def update_particles(particles, control, dt=0.1):
     particles[:, 2] += noisy_control[:, 1] * dt
     return particles
 
-
 def weight_particles(particles, measurement, landmarks):
     weights = np.ones(len(particles))
     
@@ -64,43 +63,68 @@ def resample_particles(particles, weights):
     indices = np.random.choice(len(particles), size=len(particles), p=normalized_weights)
     return particles[indices]
 
+# def weight_particles(particles, measurement, landmarks):
+#     weights = np.zeros(len(particles))
+    
+#     for i, landmark in enumerate(landmarks):
+#         # Calculate expected distance and angle to each landmark from each particle
+#         expected_distance = np.sqrt((particles[:, 0] - landmark[0])**2 + (particles[:, 1] - landmark[1])**2)
+#         expected_angle = np.arctan2(landmark[1] - particles[:, 1], landmark[0] - particles[:, 0]) - particles[:, 2]
+
+#         # Extract the actual distance and angle measurements for the ith landmark
+#         actual_distance = measurement[i*2]  # Even indices are distance measurements
+#         actual_angle = measurement[i*2 + 1]  # Odd indices are angle measurements
+
+#         # Calculate weights using log-likelihoods to avoid underflow
+#         log_weight_distance = -(expected_distance - actual_distance)**2 / (2 * 0.04)
+#         log_weight_angle = -(expected_angle - actual_angle)**2 / (2 * 0.04)
+#         weights += log_weight_distance + log_weight_angle
+
+#     # Convert log weights to actual weights
+#     max_log_weight = np.max(weights)
+#     weights = np.exp(weights - max_log_weight)
+
+#     return weights
+
+# def resample_particles(particles, weights):
+#     # Normalize weights to prevent division by zero or NaN values
+#     weights += 1e-300  # Add a small value to avoid division by zero
+#     normalized_weights = weights / np.sum(weights)
+
+#     indices = np.random.choice(len(particles), size=len(particles), p=normalized_weights)
+#     resampled_particles = particles[indices]
+#     return resampled_particles
+
 def particle_filter(map_path, sensing_path, num_particles, estimates_path):
-    odometry = []
-    noisy_observations = []
-    particle_history = []
     landmarks = np.load(map_path)
     readings = np.load(sensing_path)
     initial_pose = readings[0, :3]
 
     particles = initialize_particles(num_particles, initial_pose)
-    estimates = np.zeros((len(readings) // 2, 3))
-
-    print("Readings array shape:", readings.shape)
-    print("Sample readings:", readings[:5])  # Print first few rows for inspection
+    
+    # Initialize estimates array with an additional row for the initial estimate
+    estimates = np.zeros((len(readings) // 2 + 1, 3))
+    
+    # Set the first row of estimates to the initial pose
+    estimates[0] = np.mean(particles, axis=0)
 
     for i in range(1, len(readings), 2):
-        particles = update_particles(particles, readings[i])
-        weights = weight_particles(particles, readings[i + 1], landmarks)
+        control = readings[i][:2]  # Ensure control is taken correctly
+        measurement = readings[i + 1]
 
-        odometry.append(readings[i, :2])
-    
-        # Reshape noisy observations for each frame into a 2D array
-        noisy_obs_frame = readings[i + 1].reshape(-1, 2)  # Assuming each landmark observation has 2 values
-        noisy_observations.append(noisy_obs_frame)
-    
+        particles = update_particles(particles, control, dt)
+
+        print("Weights before resampling:", weights)
+        weights = weight_particles(particles, measurement, landmarks)
+        print("Weights after resampling:", weights)
+
         particles = resample_particles(particles, weights)
 
-        # Estimate robot pose as the mean of the particle cloud
-        estimates[i // 2] = np.average(particles, axis=0, weights=weights)
-
-        odometry.append(readings[i, :2])
-        noisy_observations.append(readings[i + 1, :])
-        particle_history.append(particles.copy())
+        # Update estimates after each resampling
+        estimates[(i // 2) + 1] = np.mean(particles, axis=0)
 
     np.save(estimates_path, estimates)
-
-    # Return odometry and noisy_observations as lists
-    return np.array(odometry), noisy_observations, particle_history, estimates
+    return estimates
 
 def animate(i, q, particles, particles_plot, ground_truths, readings, landmarks, gt_patch, sensed_patch, landmark_guesses, lines, ax):
     global odometry_plot, estimated_pose_plot, noisy_observation_plot
@@ -109,7 +133,8 @@ def animate(i, q, particles, particles_plot, ground_truths, readings, landmarks,
     particles = update_particles(particles, readings[i * 2 + 1])
     weights = weight_particles(particles, readings[i * 2 + 2], landmarks)
     particles = resample_particles(particles, weights)
-    particles_plot.set_offsets(particles[:, :2])
+    particles_plot.set_offsets(particles[:, :2])  # Update particle positions
+
 
     # Update estimated pose plot (black line)
     estimated_pose = np.mean(particles, axis=0)
@@ -139,8 +164,6 @@ def animate(i, q, particles, particles_plot, ground_truths, readings, landmarks,
             line.set_data([], [])
 
     return particles_plot, odometry_plot, estimated_pose_plot, noisy_observation_plot, gt_patch, sensed_patch, landmark_guesses, *lines
-
-
 
 
 def load_ground_truth(sensing_path):
@@ -192,7 +215,7 @@ if __name__ == "__main__":
     ax.set_xlim(0, 2)  # Adjust as per your map's dimensions
     ax.set_ylim(0, 2)
     ax.scatter(landmarks[:, 0], landmarks[:, 1], marker='o', color='blue', label='Landmarks')
-    particles_plot = ax.scatter(particles[:, 0], particles[:, 1], s=1, color='gray', label='Particles')
+    particles_plot = ax.scatter(particles[:, 0], particles[:, 1], s=1, color='grey', label='Particles')
 
     odometry_plot, = ax.plot([], [], 'r-', label='Odometry')
     estimated_pose_plot, = ax.plot([], [], 'k-', label='Estimated Pose')
@@ -214,12 +237,10 @@ if __name__ == "__main__":
     plt.show()
 
     # Save particle estimates
-    np.save(args.estimates, particles)  # Modify as needed to save the correct data
-
-    # Inside your main function after parsing arguments
+    np.save(args.estimates, particles)  
     animation_save_path = construct_animation_save_path(args.estimates)
 
-    print(animation_save_path)
+    #print(animation_save_path)
     # Use this path to save the animation
-    ani.save(animation_save_path, writer='ffmpeg')
+    # ani.save(animation_save_path, writer='ffmpeg')
 
