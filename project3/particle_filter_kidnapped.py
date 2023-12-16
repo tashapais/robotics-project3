@@ -7,14 +7,22 @@ import argparse
 from dead_reckoning import drive_model, rotate, transform_rigid_body, to_global
 from matplotlib.animation import FuncAnimation
 
-#For animation
+# For animation
 dt = 0.1
 original = np.array([[-.05, -.1], [.05, -.1], [.05, .1], [-.05, .1]])
 
-# Initialization
-def initialize_particles(num_particles, initial_pose):
-    particles = np.tile(initial_pose, (num_particles, 1)).astype(np.float64)
-    return particles
+# Define the ranges for particle initialization
+xlim = [0, 2]  # Assuming the x-coordinates range from 0 to 2
+ylim = [0, 2]  # Assuming the y-coordinates range from 0 to 2
+theta_range = [0, 2*np.pi]  # Assuming theta (orientation) ranges from 0 to 2*pi
+
+
+# Initialization with uniform distribution
+def initialize_particles_uniform(num_particles, xlim, ylim, theta_range):
+    x = np.random.uniform(xlim[0], xlim[1], num_particles)
+    y = np.random.uniform(ylim[0], ylim[1], num_particles)
+    theta = np.random.uniform(theta_range[0], theta_range[1], num_particles)
+    return np.vstack((x, y, theta)).T
 
 # Prediction
 def predict(particles, control, dt, std):
@@ -61,8 +69,8 @@ def resample(particles, weights):
     return particles[indices]
 
 # Particle Filter
-def particle_filter(initial_pose, controls, measurements, num_particles, landmarks, std):
-    particles = initialize_particles(num_particles, initial_pose)
+def particle_filter(initial_pose, controls, measurements, num_particles, landmarks, std, xlim, ylim, theta_range):
+    particles = initialize_particles_uniform(num_particles, xlim, ylim, theta_range)
     weights = np.ones(num_particles) / num_particles
     estimates = np.zeros((len(controls) + 1, 3))  # +1 to include initial pose
     estimates[0] = initial_pose  # Set the first row to the initial pose
@@ -114,14 +122,14 @@ if __name__ == "__main__":
     std = [std_control, std_measurement]
 
     # Run particle filter for estimates
-    estimates = particle_filter(initial_pose, controls, measurements, num_particles, landmarks, std)
+    estimates = particle_filter(initial_pose, controls, measurements, num_particles, landmarks, std, xlim, ylim, theta_range)
     np.save(args.estimates, estimates)  # Save the estimates as a .npy file
 
     # Animation Setup
     fig, ax = plt.subplots()
     ax.set_xlim(0, 2)
     ax.set_ylim(0, 2)
-    particles = initialize_particles(num_particles, initial_pose)
+    particles = initialize_particles_uniform(num_particles, xlim, ylim, theta_range)  # Corrected function call
     weights = np.ones(num_particles) / num_particles
     scat = ax.scatter(particles[:, 0], particles[:, 1], color='grey', s=10)
 
@@ -130,6 +138,6 @@ if __name__ == "__main__":
                         frames=len(controls), interval=50, repeat=False)
 
     # Save animation
-    ani.save('video1/particle_filter_animation.mp4', writer='ffmpeg', fps=30)
+    ani.save('video2/particles_0_0_L_200.mp4', writer='ffmpeg', fps=30)
 
     plt.show()
